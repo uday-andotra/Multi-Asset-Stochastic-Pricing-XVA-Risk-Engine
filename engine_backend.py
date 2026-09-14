@@ -4,8 +4,8 @@ import yfinance as yf
 import matplotlib.pyplot as plt
 from scipy.optimize import minimize, differential_evolution
 
-from core.monte_carlo import simulate_advanced_asset_paths_gpu
-from core.yield_curve import YieldCurveBootstrapper, NelsonSiegelSvensson
+from core.monte_carlo import simulate_advanced_asset_paths_gpu, simulate_vasicek_rates
+from core.yield_curve import default_curve_csv, fit_nss, load_instrument_tape
 from core.xva_calculator import calculate_xva_metrics_gpu
 
 def get_scenario_config(scenario_name="baseline"):
@@ -43,7 +43,15 @@ def get_scenario_config(scenario_name="baseline"):
     }
     return scenarios.get(scenario_name.lower(), scenarios["baseline"])
 
-def run_risk_engine(tickers, initial_capital, custom_weights=None, scenario_name="baseline", progress_callback=None):
+def run_risk_engine(
+    tickers,
+    initial_capital,
+    custom_weights=None,
+    scenario_name="baseline",
+    progress_callback=None,
+    use_vasicek_discount=False,
+    curve_csv=None,
+):
     def update_status(msg):
         if progress_callback:
             progress_callback(msg)
@@ -76,30 +84,38 @@ def run_risk_engine(tickers, initial_capital, custom_weights=None, scenario_name
     torch.manual_seed(42)
     np.random.seed(42)
     
-    update_status(f"⚙️ Phase 1: Running GPU-accelerated Monte Carlo simulation ({simulation_paths} paths)...")
+    update_status(f"Phase 1: Monte Carlo on {device} ({simulation_paths} paths)...")
     paths = simulate_advanced_asset_paths_gpu(
         tickers=active_tickers, S0=S0, mu=mu, cov_matrix=cov_matrix, 
         scenario=scenario, T=maturity_years, dt=dt, num_paths=simulation_paths, device=device
     )
 
-    update_status("⚙️ Phase 2: Bootstrapping yield curve & fitting NSS model...")
-    bootstrapper = YieldCurveBootstrapper()
-    bootstrapper.add_cash_rate(0.25, 0.065)
-    bootstrapper.add_cash_rate(0.5, 0.067)
-    bootstrapper.add_swap_rate(1.0, 0.069)
-    bootstrapper.add_swap_rate(2.0, 0.071)
-    bootstrapper.add_swap_rate(3.0, 0.073)
-    bootstrapper.add_swap_rate(5.0, 0.075)
-    bootstrapper.add_swap_rate(10.0, 0.077)
-    bootstrapper.add_swap_rate(30.0, 0.080)
-    
-    t_raw, y_raw = bootstrapper.get_curve()
-    nss = NelsonSiegelSvensson()
-    nss.fit(t_raw, y_raw)
-    
+    update_status("Phase 2: Stripping discount (and projection) tapes from CSV...")
+    csv_path = curve_csv or default_curve_csv()
+    discount_boot = load_instrument_tape(csv_path, "discount")
+    nss, t_raw, y_raw = fit_nss(discount_boot)
+    try:
+        proj_boot = load_instrument_tape(csv_path, "projection")
+        _proj_nss, _, _ = fit_nss(proj_boot)
+    except Exception:
+        _proj_nss = None
+
     num_steps = int(maturity_years / dt)
     t_array = torch.linspace(0, maturity_years, num_steps + 1, device=device)
     discount_rates = torch.tensor(nss.get_curve(t_array.cpu().numpy()), dtype=torch.float32, device=device)
+
+    short_rates = None
+    if use_vasicek_discount:
+        update_status("Phase 2b: Vasicek short-rate paths for discounting...")
+        r0 = float(y_raw[0]) if len(y_raw) else 0.06
+        short_rates = simulate_vasicek_rates(
+            n_steps=num_steps,
+            n_paths=simulation_paths,
+            dt=dt,
+            r0=r0,
+            b=r0,
+            device=device,
+        )
 
     S0_tensor = torch.tensor(S0, dtype=torch.float32, device=device)
     
@@ -116,12 +132,13 @@ def run_risk_engine(tickers, initial_capital, custom_weights=None, scenario_name
     encoded_portfolio_paths = torch.sum(paths * encoded_units, dim=2)
     encoded_initial_value = encoded_portfolio_paths[0, 0].item()
     
-    update_status("⚙️ Phase 3: Calculating baseline XVA metrics (EE, PFE, CVA, FVA)...")
+    update_status("Phase 3: Baseline EE / PFE / CVA / FVA on the toy option payoff...")
     enc_EE, enc_PFE_95, enc_CVA, enc_FVA = calculate_xva_metrics_gpu(
         paths=encoded_portfolio_paths, initial_value=encoded_initial_value, scenario=scenario,
         dt=dt, t_array=t_array, discount_rates=discount_rates,
         recovery_rate=0.40, base_hazard_rate=0.03,
-        wwr_alpha=0.1, funding_spread=0.01
+        wwr_alpha=0.1, funding_spread=0.01,
+        short_rates=short_rates,
     )
 
     def objective_function(weights_np):
@@ -142,7 +159,8 @@ def run_risk_engine(tickers, initial_capital, custom_weights=None, scenario_name
             paths=portfolio_paths, initial_value=current_initial_value, scenario=scenario,
             dt=dt, t_array=t_array, discount_rates=discount_rates,
             recovery_rate=0.40, base_hazard_rate=0.03,
-            wwr_alpha=0.1, funding_spread=0.01
+            wwr_alpha=0.1, funding_spread=0.01,
+            short_rates=short_rates,
         )
         
         risk_score = PFE_95.max().item() + (CVA * 15.0) + (FVA * 8.0)
@@ -192,7 +210,8 @@ def run_risk_engine(tickers, initial_capital, custom_weights=None, scenario_name
         paths=optimal_portfolio_paths, initial_value=optimal_initial_value, scenario=scenario,
         dt=dt, t_array=t_array, discount_rates=discount_rates,
         recovery_rate=0.40, base_hazard_rate=0.03,
-        wwr_alpha=0.1, funding_spread=0.01
+        wwr_alpha=0.1, funding_spread=0.01,
+        short_rates=short_rates,
     )
 
     update_status("📈 Generating final risk exposure and yield curve figures...")

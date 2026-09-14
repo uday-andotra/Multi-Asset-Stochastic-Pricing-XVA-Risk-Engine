@@ -1,75 +1,118 @@
-# Multi-Asset Stochastic Pricing & XVA Risk Engine
+# Multi-asset Monte Carlo and XVA study engine
 
-An enterprise-grade, portfolio-level quantitative risk and pricing engine built in Python to simulate multi-asset paths, bootstrap macroeconomic yield curves, and compute Counterparty Credit Risk (CCR) and Valuation Adjustments (XVA).
+Educational Python engine: simulate a small equity basket, build a discount curve,
+and compute exposure and unilateral CVA / FVA on a toy option-style payoff.
 
-## 🚀 Key Features & Architecture
+It is a study desk. It is not a production CCR system, not a netting-set
+valuer, and not investment advice.
 
-The engine is structured into a modular, high-performance architecture:
+This repository is a cleaned public snapshot of local work.
 
-### Phase 1: High-Performance Simulation Engine (Stochastic Calculus & HPC)
-*   **Geometric Brownian Motion (GBM):** Simulated using the Euler-Maruyama discretization method.
-*   **Heston Model:** Incorporates stochastic volatility via the Cox-Ingersoll-Ross (CIR) variance process.
-*   **Vasicek Model:** Simulates mean-reverting interest rate paths.
-*   **Merton Jump-Diffusion:** Simulates market crashes and fat-tailed distributions using a Poisson jump process.
-*   **Cholesky Decomposition:** Correlates multi-asset baskets and interest rates using real-world historical correlation matrices.
-*   **GPU Acceleration:** Vectorized computations utilizing PyTorch/CuPy for high-performance Monte Carlo path generation.
+## What it computes
 
-### Phase 2: Dynamic Yield Curve Bootstrapper
-*   **Zero-Coupon Rate Extraction:** Strips rates from simulated market instrument data.
-*   **Dual-Curve Multi-Curve Framework:** Separates cash flow projection curves from OIS/SOFR discounting curves.
-*   **Nelson-Siegel-Svensson (NSS):** Implements parametric macroeconomic curve fitting as an advanced alternative to basic cubic splines.
+**Paths.** Correlated log-Euler steps. Asset Browns are built from a
+**correlation** Cholesky. Instantaneous variance follows a CIR layer
+(Heston-style) with asset–variance correlation fixed at −0.7. Optional
+Merton jumps with a compensator. Crisis / calm scenarios scale vols and
+push off-diagonal correlations toward 1 or toward 0. The stressed
+covariance is repaired if a stress breaks positive-definiteness.
 
-### Phase 3: Counterparty Credit Risk & XVA Module
-*   **Exposure Profiles:** Computes cross-sectional Expected Exposure (EE) and 95% Potential Future Exposure (PFE).
-*   **Credit Value Adjustment (CVA):** Integrates Probability of Default (PD) and Loss Given Default (LGD) to quantify counterparty credit risk.
-*   **Wrong-Way Risk (WWR):** Dynamically correlates counterparty hazard rates with portfolio asset exposures.
-*   **Funding Value Adjustment (FVA):** Calculates the ongoing cost of posting cash collateral.
+The CIR layer is a variance multiplier on unit Browns. It is not a
+calibrated Heston surface.
 
-### Interactive Dashboard Frontend
-*   **Streamlit UI (`app.py`):** Provides a web-based interactive dashboard featuring real-time logging status containers, dynamic parameter configuration, and automated Matplotlib visualizations.
+**Curve.** Instruments come from `data/curve_instruments.csv`
+(columns `curve,kind,maturity,rate`). Two named tapes can live in that
+file: `discount` and `projection`. Each is stripped then optionally NSS-fitted.
+XVA on this option payoff uses the **discount** tape only. The projection
+tape is loaded so a later linear instrument can project floats. That is two
+independent strips, not a full OIS/LIBOR dual-curve engine.
 
----
+Optional Vasicek short-rate paths (`use_vasicek_discount=True`) replace
+deterministic \(DF(t)=e^{-y(t)t}\) with a pathwise integral of \(r_t\).
+Default is off (deterministic NSS).
 
-## 🛠️ Tech Stack
-*   **Language:** Python
-*   **Core Libraries:** NumPy, SciPy, PyTorch / CuPy (GPU Acceleration)
-*   **Data & Visualization:** Matplotlib, `yfinance`
-*   **Frontend/Dashboard:** Streamlit
+**Book.** Simulated spots are turned into a long-only weighted portfolio
+(`sum_i units_i * S_i`). Exposure is not marked name-by-name.
 
----
+**Exposure.** For each path and time, mark a call or put on that portfolio
+value and keep the positive part:
 
-## 📦 Project Structure
-```text
-├── core/
-│   ├── monte_carlo.py       # Simulation engine (GBM, Heston, Vasicek, Jumps, Cholesky)
-│   ├── yield_curve.py       # Bootstrapping & NSS curve fitting
-│   └── xva_calculator.py    # CCR, EE, PFE, CVA, FVA, and Wrong-Way Risk
-├── engine_backend.py        # Orchestration pipeline & optimizers
-├── app.py                   # Streamlit interactive dashboard frontend
-└── README.md
-```
+\[
+E_t = (V_t)^+,\quad
+\mathrm{EE}_t = \mathbb{E}[E_t],\quad
+\mathrm{PFE}^{95}_t = q_{0.95}(E_t).
+\]
 
----
+Strike is `initial_value * strike_multiplier`. Baseline vs crash scenarios
+switch call vs put.
 
-## 🚦 Getting Started & Installation
+**CVA (unilateral).** Constant recovery. Intensity can depend on exposure:
 
-1. Clone the repository:
+\[
+\lambda_t = \lambda_0 \exp(\alpha E_t / S_0),\quad
+\mathrm{PD}_t = e^{-\Lambda_{t-\Delta t}} - e^{-\Lambda_t},
+\]
+
+\[
+\mathrm{CVA} = \mathbb{E}\Big[\sum_t \mathrm{LGD}\, E_t\, DF_t\, \mathrm{PD}_t\Big].
+\]
+
+α = 0 is no wrong-way risk. α > 0 is a reduced-form WWR knob, not a
+structural model of the counterparty’s asset.
+
+**FVA.** Funding spread times discounted positive exposure, discrete sum.
+No collateral schedule, no CSA, no DVA.
+
+**Allocator.** A cheap differential-evolution + SLSQP pass reweights the
+book to cut a score of peak PFE + CVA + FVA. It is a demo knob, not a
+desk optimiser.
+
+## What it is not
+
+- Calibrated Vasicek term structure (the OU paths are a discounting knob)
+- Full dual-curve OIS vs projection with basis, collateral, and CSA
+- KVA / regulatory capital
+- Netting, margin, or close-out set
+- Calibrated Heston or jump surface
+- A bank XVA library
+
+Default device is CPU. The simulator uses PyTorch and will take CUDA or
+MPS if present. CuPy is not used.
+
+## Run
+
 ```bash
-git clone [https://github.com/YOUR_USERNAME/multi-asset-risk-engine.git](https://github.com/YOUR_USERNAME/multi-asset-risk-engine.git)
-cd multi-asset-risk-engine
-
-```
-
-
-2. Install dependencies:
-```bash
-pip install numpy scipy torch matplotlib streamlit yfinance
-
-```
-
-
-3. Run the interactive Streamlit dashboard:
-```bash
+git clone https://github.com/uday-andotra/Multi-Asset-Stochastic-Pricing-XVA-Risk-Engine.git
+cd Multi-Asset-Stochastic-Pricing-XVA-Risk-Engine
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
 streamlit run app.py
+```
+
+```bash
+PYTHONPATH=. pytest -q
+```
+
+Tests do not download prices.
+
+## Layout
 
 ```
+core/monte_carlo.py      # paths
+core/yield_curve.py      # bootstrap + NSS
+core/xva_calculator.py   # EE, PFE, CVA, FVA
+engine_backend.py        # yfinance hist, weights, plots
+app.py                   # Streamlit
+tests/
+```
+
+## How to read a run
+
+EE should sit below 95% PFE on every date. CVA should rise if you lift
+λ₀, LGD, or α, and fall if you lift recovery. FVA should rise in the
+funding spread. If a crisis correlation stress is on, PFE usually fattens
+faster than EE.
+
+The allocator can cut that score by concentrating the book. Treat the
+weights as an illustration of the objective, not a recommendation.

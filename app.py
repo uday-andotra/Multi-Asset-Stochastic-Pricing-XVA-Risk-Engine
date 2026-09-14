@@ -4,10 +4,10 @@ import numpy as np
 from engine_backend import run_risk_engine
 
 # Configure the Streamlit page
-st.set_page_config(page_title="XVA Risk Engine", layout="wide")
+st.set_page_config(page_title="XVA study desk", layout="wide")
 
-st.title("Multi-Asset Stochastic Pricing & XVA Risk Engine")
-st.markdown("### Counterparty Credit Risk & Portfolio Optimization")
+st.title("Multi-asset Monte Carlo and XVA study desk")
+st.markdown("Toy option exposure on a simulated basket. Not a production CCR engine.")
 
 # ----------------- SESSION STATE & LOG RETENTION -----------------
 if "custom_weights_str" not in st.session_state:
@@ -64,6 +64,11 @@ scenario_map = {
     "Market Crash (Put Option, Jump Shocks)": "market_crash"
 }
 
+use_vasicek = st.sidebar.checkbox(
+    "Vasicek pathwise discount (off = NSS zeros)",
+    value=False,
+)
+
 # ----------------- EXECUTION PIPELINE -----------------
 if st.sidebar.button("Run Risk Engine"):
     scenario_name = scenario_map[scenario_selected]
@@ -96,7 +101,8 @@ if st.sidebar.button("Run Risk Engine"):
             initial_capital=capital, 
             custom_weights=custom_weights,
             scenario_name=scenario_name,
-            progress_callback=update_ui_status
+            progress_callback=update_ui_status,
+            use_vasicek_discount=use_vasicek,
         )
         
         st.session_state.last_results = {

@@ -1,0 +1,17 @@
+curve,kind,maturity,rate
+discount,cash,0.25,0.065
+discount,cash,0.50,0.067
+discount,swap,1.00,0.069
+discount,swap,2.00,0.071
+discount,swap,3.00,0.073
+discount,swap,5.00,0.075
+discount,swap,10.00,0.077
+discount,swap,30.00,0.080
+projection,cash,0.25,0.070
+projection,cash,0.50,0.072
+projection,swap,1.00,0.074
+projection,swap,2.00,0.076
+projection,swap,3.00,0.078
+projection,swap,5.00,0.080
+projection,swap,10.00,0.082
+projection,swap,30.00,0.085
