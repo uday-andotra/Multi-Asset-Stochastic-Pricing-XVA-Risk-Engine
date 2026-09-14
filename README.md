@@ -81,6 +81,25 @@ MPS if present. CuPy is not used.
 
 ## Run
 
+<<<<<<< HEAD
+=======
+1. Clone the repository:
+```bash
+git clone [https://github.com/YOUR_USERNAME/Multi-Asset-Stochastic-Pricing-XVA-Risk-Engine.git](https://github.com/YOUR_USERNAME/Multi-Asset-Stochastic-Pricing-XVA-Risk-Engine.git)
+cd Multi-Asset-Stochastic-Pricing-XVA-Risk-Engine
+
+```
+
+
+2. Install dependencies:
+```bash
+pip install numpy scipy torch matplotlib streamlit yfinance
+
+```
+
+
+3. Run the interactive Streamlit dashboard:
+>>>>>>> 4fda5181e0f54f16b368700da89bfd23cad7d70f
 ```bash
 git clone https://github.com/uday-andotra/Multi-Asset-Stochastic-Pricing-XVA-Risk-Engine.git
 cd Multi-Asset-Stochastic-Pricing-XVA-Risk-Engine
