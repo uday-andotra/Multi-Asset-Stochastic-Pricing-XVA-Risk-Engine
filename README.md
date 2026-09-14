@@ -28,8 +28,8 @@ tape is loaded so a later linear instrument can project floats. That is two
 independent strips, not a full OIS/LIBOR dual-curve engine.
 
 Optional Vasicek short-rate paths (`use_vasicek_discount=True`) replace
-deterministic \(DF(t)=e^{-y(t)t}\) with a pathwise integral of \(r_t\).
-Default is off (deterministic NSS).
+deterministic discount factors `DF(t) = exp(-y(t) * t)` with a pathwise
+integral of the short rate `r`. Default is off (deterministic NSS).
 
 **Book.** Simulated spots are turned into a long-only weighted portfolio
 (`sum_i units_i * S_i`). Exposure is not marked name-by-name.
@@ -37,28 +37,21 @@ Default is off (deterministic NSS).
 **Exposure.** For each path and time, mark a call or put on that portfolio
 value and keep the positive part:
 
-\[
-E_t = (V_t)^+,\quad
-\mathrm{EE}_t = \mathbb{E}[E_t],\quad
-\mathrm{PFE}^{95}_t = q_{0.95}(E_t).
-\]
+- `E(t) = max(V(t), 0)`
+- `EE(t) = mean of E(t) across paths`
+- `PFE95(t) = 95th percentile of E(t)`
 
 Strike is `initial_value * strike_multiplier`. Baseline vs crash scenarios
 switch call vs put.
 
 **CVA (unilateral).** Constant recovery. Intensity can depend on exposure:
 
-\[
-\lambda_t = \lambda_0 \exp(\alpha E_t / S_0),\quad
-\mathrm{PD}_t = e^{-\Lambda_{t-\Delta t}} - e^{-\Lambda_t},
-\]
+- `lambda(t) = lambda0 * exp(alpha * E(t) / S0)`
+- `PD(t) = exp(-Lambda(t-dt)) - exp(-Lambda(t))`
+- `CVA = mean over paths of sum_t LGD * E(t) * DF(t) * PD(t)`
 
-\[
-\mathrm{CVA} = \mathbb{E}\Big[\sum_t \mathrm{LGD}\, E_t\, DF_t\, \mathrm{PD}_t\Big].
-\]
-
-α = 0 is no wrong-way risk. α > 0 is a reduced-form WWR knob, not a
-structural model of the counterparty’s asset.
+`alpha = 0` is no wrong-way risk. `alpha > 0` is a reduced-form WWR knob,
+not a structural model of the counterparty’s asset.
 
 **FVA.** Funding spread times discounted positive exposure, discrete sum.
 No collateral schedule, no CSA, no DVA.
@@ -81,25 +74,6 @@ MPS if present. CuPy is not used.
 
 ## Run
 
-<<<<<<< HEAD
-=======
-1. Clone the repository:
-```bash
-git clone [https://github.com/YOUR_USERNAME/Multi-Asset-Stochastic-Pricing-XVA-Risk-Engine.git](https://github.com/YOUR_USERNAME/Multi-Asset-Stochastic-Pricing-XVA-Risk-Engine.git)
-cd Multi-Asset-Stochastic-Pricing-XVA-Risk-Engine
-
-```
-
-
-2. Install dependencies:
-```bash
-pip install numpy scipy torch matplotlib streamlit yfinance
-
-```
-
-
-3. Run the interactive Streamlit dashboard:
->>>>>>> 4fda5181e0f54f16b368700da89bfd23cad7d70f
 ```bash
 git clone https://github.com/uday-andotra/Multi-Asset-Stochastic-Pricing-XVA-Risk-Engine.git
 cd Multi-Asset-Stochastic-Pricing-XVA-Risk-Engine
